@@ -128,6 +128,12 @@ public class VRBrowserActivity extends PlatformActivity implements WidgetManager
     public static final String EXTRA_KIOSK = "kiosk";
     private static final long BATTERY_UPDATE_INTERVAL = 60 * 1_000_000_000L; // 60 seconds
 
+    private boolean mOpenInImmersive = false;
+    public static final String EXTRA_OPEN_IN_IMMERSIVE = "open_in_immersive";
+    // Element where a click would be simulated to launch the WebXR experience.
+    public static final String EXTRA_OPEN_IN_IMMERSIVE_PARENT_XPATH = "open_in_immersive_parent_xpath";
+    public static final String EXTRA_OPEN_IN_IMMERSIVE_ELEMENT_XPATH = "open_in_immersive_element_xpath";
+
     private BroadcastReceiver mCrashReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -248,6 +254,8 @@ public class VRBrowserActivity extends PlatformActivity implements WidgetManager
     private PlatformActivityPlugin mPlatformPlugin;
     private int mLastMotionEventWidgetHandle;
     private boolean mIsEyeTrackingSupported;
+    private String mImmersiveParentElementXPath;
+    private String mImmersiveTargetElementXPath;
 
     private boolean callOnAudioManager(Consumer<AudioManager> fn) {
         if (mAudioManager == null) {
@@ -886,6 +894,14 @@ public class VRBrowserActivity extends PlatformActivity implements WidgetManager
             }
 
             openInKioskMode = extras.getBoolean(EXTRA_KIOSK, false);
+
+            if (extras.getBoolean(EXTRA_OPEN_IN_IMMERSIVE)) {
+                mImmersiveParentElementXPath = extras.getString(EXTRA_OPEN_IN_IMMERSIVE_PARENT_XPATH);
+                mImmersiveTargetElementXPath = extras.getString(EXTRA_OPEN_IN_IMMERSIVE_ELEMENT_XPATH);
+
+                // Open in immersive requires specific information to be present
+                mOpenInImmersive = targetUri != null && mImmersiveTargetElementXPath != null;
+            }
         }
 
         // If there is a target URI we open it
@@ -897,6 +913,8 @@ public class VRBrowserActivity extends PlatformActivity implements WidgetManager
             if (openInKioskMode) {
                 // FIXME this might not work as expected if the app was already running
                 mWindows.openInKioskMode(targetUri.toString());
+            } if (mOpenInImmersive) {
+                mWindows.openInImmersiveMode(targetUri, mImmersiveParentElementXPath, mImmersiveTargetElementXPath);
             } else {
                 if (openInWindow) {
                     location = Windows.OPEN_IN_NEW_WINDOW;
@@ -1338,6 +1356,13 @@ public class VRBrowserActivity extends PlatformActivity implements WidgetManager
             return;
         }
         mIsPresentingImmersive = false;
+        TelemetryService.stopImmersive();
+
+        if (mOpenInImmersive) {
+            Log.d(LOGTAG, "Started in immersive mode: exiting WebXR will finish the app");
+            finish();
+        }
+
         runOnUiThread(() -> {
             mWindows.exitImmersiveMode();
             for (WebXRListener listener: mWebXRListeners) {
@@ -1348,7 +1373,6 @@ public class VRBrowserActivity extends PlatformActivity implements WidgetManager
         // Show the window in front of you when you exit immersive mode.
         recenterUIYaw(WidgetManagerDelegate.YAW_TARGET_ALL);
 
-        TelemetryService.stopImmersive();
         Handler handler = new Handler(Looper.getMainLooper());
         handler.postDelayed(() -> {
             if (!mWindows.isPaused()) {
@@ -1361,6 +1385,7 @@ public class VRBrowserActivity extends PlatformActivity implements WidgetManager
             }
         }, 20);
     }
+
     @Keep
     @SuppressWarnings("unused")
     void onDismissWebXRInterstitial() {
@@ -1885,6 +1910,10 @@ public class VRBrowserActivity extends PlatformActivity implements WidgetManager
     @Override
     public boolean isWebXRPresenting() {
         return mIsPresentingImmersive;
+    }
+
+    @Override public boolean isOpenInImmersive() {
+        return mOpenInImmersive;
     }
 
     @Override
